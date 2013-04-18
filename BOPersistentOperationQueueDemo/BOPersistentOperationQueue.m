@@ -69,6 +69,17 @@ static NSString * const defaultQueueDomainName = @"com.buenaonda.BOPersistentOpe
 #endif
 }
 
+- (void)addOperationWithClass:(Class<BOOperationPersistance>)class dictionary:(NSDictionary *)dictionary identifier:(NSNumber *)identifier
+{
+    NSOperation *operation = [class operationWithDictionary:dictionary];
+    if (operation) {
+        operation.identifier = identifier;
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
+            [self addOperation:operation];
+        });
+    }
+}
+
 - (void)retrievePendingQueue
 {
     if (!_dbQueue && self.name != nil) {
@@ -85,13 +96,7 @@ static NSString * const defaultQueueDomainName = @"com.buenaonda.BOPersistentOpe
                 NSData *operationData = [result dataForColumnIndex:2];
                 NSError *error;
                 NSDictionary *operationDictionary = [NSJSONSerialization JSONObjectWithData:operationData options:0 error:&error];
-                NSOperation *operation = [operationClass operationWithDictionary:operationDictionary];
-                if (operation) {
-                    operation.identifier = [result objectForColumnIndex:0];
-                    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
-                        [self addOperation:operation];
-                    });
-                }
+                [self addOperationWithClass:operationClass dictionary:operationDictionary identifier:[result objectForColumnIndex:0]];
             }
         }];
     }
@@ -106,6 +111,8 @@ static NSString * const defaultQueueDomainName = @"com.buenaonda.BOPersistentOpe
             NSString *sql = [NSString stringWithFormat:@"DELETE FROM `jobs` WHERE id = '%@'", object.identifier];
             [db executeUpdate:sql];
         }];
+    } else {
+        [self addOperationWithClass:[object class] dictionary:[object operationData] identifier:object.identifier];
     }
 }
 
