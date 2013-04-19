@@ -11,11 +11,16 @@
 #import "NSOperation+PersistanceID.h"
 #import <FMDB/FMDatabase.h>
 #import <FMDB/FMDatabaseQueue.h>
+#import <FMDB/FMDatabaseAdditions.h>
 
 static NSString * const defaultQueueDomainName = @"com.buenaonda.BOPersistentOperationQueue";
 
 @interface BOPersistentOperationQueue () {
     BOOL _started;
+    NSInteger _smallestIdCreatedOnRuntime;
+    NSInteger _lastRetrievedId;
+    dispatch_queue_t _jobRetrievalQueue;
+    BOOL _retrievingJobs;
 }
 
 @property (nonatomic, strong) FMDatabaseQueue *dbQueue;
@@ -29,13 +34,11 @@ static NSString * const defaultQueueDomainName = @"com.buenaonda.BOPersistentOpe
     self = [super init];
     if (self) {
         _started = NO;
-        NSString *byeNotificationName;
-#ifdef __IPHONE_OS_VERSION_MIN_REQUIRED
-        byeNotificationName = UIApplicationDidEnterBackgroundNotification;
-#else
-        byeNotificationName = NSApplicationWillTerminateNotification;
-#endif
-        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(backupOperations) name:byeNotificationName object:nil];
+        _smallestIdCreatedOnRuntime = NSIntegerMax;
+        _lastRetrievedId = 0;
+        _retrievingJobs = NO;
+        _jobRetrievalQueue = dispatch_queue_create("com.buenaonda.BOPersistentOperationQueue.jobRetrieval", DISPATCH_QUEUE_SERIAL);
+        [self addObserver:self forKeyPath:@"operations" options:0 context:NULL];
     }
     return self;
 }
@@ -59,7 +62,11 @@ static NSString * const defaultQueueDomainName = @"com.buenaonda.BOPersistentOpe
         NSString *operationString = [[NSString alloc] initWithData:operationData encoding:NSUTF8StringEncoding];
         [_dbQueue inDatabase:^(FMDatabase *db) {
             [db executeUpdate:@"INSERT INTO `jobs` (`operationClass`, `operationData`) VALUES (?, ?)", NSStringFromClass([op class]), operationString];
-            op.identifier = [NSNumber numberWithInteger:[db lastInsertRowId]];
+            NSUInteger lastId = [db lastInsertRowId];
+            op.identifier = [NSNumber numberWithInteger:lastId];
+            if (_smallestIdCreatedOnRuntime == NSIntegerMax) {
+                _smallestIdCreatedOnRuntime = lastId;
+            }
         }];
     }
 #ifdef DEBUG_BOPERSISTANCE
@@ -90,13 +97,25 @@ static NSString * const defaultQueueDomainName = @"com.buenaonda.BOPersistentOpe
         _dbQueue = [FMDatabaseQueue databaseQueueWithPath:dbPath];
         [_dbQueue inDatabase:^(FMDatabase *database) {
             [database executeUpdate:@"CREATE TABLE IF NOT EXISTS `jobs` (id INTEGER PRIMARY KEY NOT NULL UNIQUE, operationClass VARCHAR(100) NOT NULL, operationData VARCHAR(500) NULL)"];
-            FMResultSet *result = [database executeQuery:@"SELECT * FROM `jobs`"];
+            NSUInteger numberOfPendingOps = [database intForQuery:@"SELECT count(id) FROM jobs"];
+            if (numberOfPendingOps == 0) {
+                _lastRetrievedId = NSIntegerMax;
+            }
+        }];
+    }
+    if (_dbQueue && (_lastRetrievedId < (_smallestIdCreatedOnRuntime - 1))) {
+        [_dbQueue inDatabase:^(FMDatabase *database) {
+            //Get task created before this runtime.
+            NSString *query = [NSString stringWithFormat:@"SELECT * FROM `jobs` WHERE id > '%d' AND id < '%d' LIMIT 0,10", _lastRetrievedId, _smallestIdCreatedOnRuntime];
+            FMResultSet *result = [database executeQuery:query];
             while ([result next]) {
                 Class<BOOperationPersistance> operationClass = NSClassFromString([result stringForColumnIndex:1]);
                 NSData *operationData = [result dataForColumnIndex:2];
                 NSError *error;
                 NSDictionary *operationDictionary = [NSJSONSerialization JSONObjectWithData:operationData options:0 error:&error];
-                [self addOperationWithClass:operationClass dictionary:operationDictionary identifier:[result objectForColumnIndex:0]];
+                NSUInteger identifier = [result intForColumnIndex:0];
+                _lastRetrievedId = identifier;
+                [self addOperationWithClass:operationClass dictionary:operationDictionary identifier:[NSNumber numberWithUnsignedInteger:identifier]];
             }
         }];
     }
@@ -104,15 +123,26 @@ static NSString * const defaultQueueDomainName = @"com.buenaonda.BOPersistentOpe
 
 #pragma mark - KVO
 
-- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(NSOperation<BOOperationPersistance> *)object change:(NSDictionary *)change context:(void *)context
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
 {
-    if ([object finishedSuccessfully]) {
-        [_dbQueue inDatabase:^(FMDatabase *db) {
-            NSString *sql = [NSString stringWithFormat:@"DELETE FROM `jobs` WHERE id = '%@'", object.identifier];
-            [db executeUpdate:sql];
-        }];
-    } else {
-        [self addOperationWithClass:[object class] dictionary:[object operationData] identifier:object.identifier];
+    if ([object isKindOfClass:[NSOperation class]]) {
+        NSOperation<BOOperationPersistance> *operation = object;
+        if ([operation finishedSuccessfully]) {
+            [_dbQueue inDatabase:^(FMDatabase *db) {
+                NSString *sql = [NSString stringWithFormat:@"DELETE FROM `jobs` WHERE id = '%@'", operation.identifier];
+                [db executeUpdate:sql];
+            }];
+        } else {
+            [self addOperationWithClass:[operation class] dictionary:[object operationData] identifier:operation.identifier];
+        }
+    } else if (object == self) {
+        if (!_retrievingJobs && (self.operations.count == 0)) {
+            _retrievingJobs = YES;
+            dispatch_sync(_jobRetrievalQueue, ^{
+                [self retrievePendingQueue];
+                _retrievingJobs = NO;
+            });
+        }
     }
 }
 
