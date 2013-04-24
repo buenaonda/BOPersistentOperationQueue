@@ -104,20 +104,22 @@ static NSString * const defaultQueueDomainName = @"com.buenaonda.BOPersistentOpe
         }];
     }
     if (_dbQueue && (_lastRetrievedId < (_smallestIdCreatedOnRuntime - 1))) {
-        [_dbQueue inDatabase:^(FMDatabase *database) {
-            //Get task created before this runtime.
-            NSString *query = [NSString stringWithFormat:@"SELECT * FROM `jobs` WHERE id > '%d' AND id < '%d' LIMIT 0,10", _lastRetrievedId, _smallestIdCreatedOnRuntime];
-            FMResultSet *result = [database executeQuery:query];
-            while ([result next]) {
-                Class<BOOperationPersistance> operationClass = NSClassFromString([result stringForColumnIndex:1]);
-                NSData *operationData = [result dataForColumnIndex:2];
-                NSError *error;
-                NSDictionary *operationDictionary = [NSJSONSerialization JSONObjectWithData:operationData options:0 error:&error];
-                NSUInteger identifier = [result intForColumnIndex:0];
-                _lastRetrievedId = identifier;
-                [self addOperationWithClass:operationClass dictionary:operationDictionary identifier:[NSNumber numberWithUnsignedInteger:identifier]];
-            }
-        }];
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
+            [_dbQueue inDatabase:^(FMDatabase *database) {
+                //Get task created before this runtime.
+                NSString *query = [NSString stringWithFormat:@"SELECT * FROM `jobs` WHERE id > '%d' AND id < '%d' LIMIT 0,10", _lastRetrievedId, _smallestIdCreatedOnRuntime];
+                FMResultSet *result = [database executeQuery:query];
+                while ([result next]) {
+                    Class<BOOperationPersistance> operationClass = NSClassFromString([result stringForColumnIndex:1]);
+                    NSData *operationData = [result dataForColumnIndex:2];
+                    NSError *error;
+                    NSDictionary *operationDictionary = [NSJSONSerialization JSONObjectWithData:operationData options:0 error:&error];
+                    NSUInteger identifier = [result intForColumnIndex:0];
+                    _lastRetrievedId = identifier;
+                    [self addOperationWithClass:operationClass dictionary:operationDictionary identifier:[NSNumber numberWithUnsignedInteger:identifier]];
+                }
+            }];
+        });
     }
 }
 
