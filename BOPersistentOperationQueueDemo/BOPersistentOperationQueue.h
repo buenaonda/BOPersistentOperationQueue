@@ -7,7 +7,14 @@
 //
 
 #import <Foundation/Foundation.h>
+#import "BOOperationPersistance.h"
 
 @interface BOPersistentOperationQueue : NSOperationQueue
+
+/** 
+ WARNING: POTENTIALLY EXPENSIVE OPERATION.
+          USE CAREFULLY.
+*/
+- (NSArray *)pendingDataOfOperationsWithClass:(Class <BOOperationPersistance>)operationClass;
 
 @end

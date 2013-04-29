@@ -7,7 +7,6 @@
 //
 
 #import "BOPersistentOperationQueue.h"
-#import "BOOperationPersistance.h"
 #import "NSOperation+PersistanceID.h"
 #import <FMDB/FMDatabase.h>
 #import <FMDB/FMDatabaseQueue.h>
@@ -121,6 +120,22 @@ static NSString * const defaultQueueDomainName = @"com.buenaonda.BOPersistentOpe
             }];
         });
     }
+}
+
+- (NSArray *)pendingDataOfOperationsWithClass:(Class<BOOperationPersistance>)operationClass
+{
+    NSMutableArray *pendingData = [NSMutableArray new];
+    [_dbQueue inDatabase:^(FMDatabase *database) {
+        NSString *query = [NSString stringWithFormat:@"SELECT * FROM `jobs` WHERE operationClass = '%@'", NSStringFromClass(operationClass)];
+        FMResultSet *result = [database executeQuery:query];
+        while ([result next]) {
+            NSData *operationData = [result dataForColumnIndex:2];
+            NSError *error;
+            NSDictionary *operationDictionary = [NSJSONSerialization JSONObjectWithData:operationData options:0 error:&error];
+            [pendingData addObject:operationDictionary];
+        }
+    }];
+    return pendingData;
 }
 
 #pragma mark - KVO
