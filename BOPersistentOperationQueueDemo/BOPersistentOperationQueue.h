@@ -9,6 +9,8 @@
 #import <Foundation/Foundation.h>
 #import "BOOperationPersistance.h"
 
+extern NSString * const BOPersistentOperationIdentifier;
+
 @interface BOPersistentOperationQueue : NSOperationQueue
 
 /** 
@@ -16,5 +18,6 @@
           USE CAREFULLY.
 */
 - (NSArray *)pendingDataOfOperationsWithClass:(Class <BOOperationPersistance>)operationClass;
+- (NSArray *)pendingDataOfOperationsWithClass:(Class <BOOperationPersistance>)operationClass like:(NSString *)query;
 
 @end

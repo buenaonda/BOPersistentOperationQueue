@@ -13,6 +13,7 @@
 #import <FMDB/FMDatabaseAdditions.h>
 
 static NSString * const defaultQueueDomainName = @"com.buenaonda.BOPersistentOperationQueue";
+NSString * const BOPersistentOperationIdentifier = @"BOPersistentOperationIdentifier";
 
 @interface BOPersistentOperationQueue () {
     BOOL _started;
@@ -124,14 +125,26 @@ static NSString * const defaultQueueDomainName = @"com.buenaonda.BOPersistentOpe
 
 - (NSArray *)pendingDataOfOperationsWithClass:(Class<BOOperationPersistance>)operationClass
 {
+    return [self pendingDataOfOperationsWithClass:operationClass like:nil];
+}
+
+- (NSArray *)pendingDataOfOperationsWithClass:(Class<BOOperationPersistance>)operationClass like:(NSString *)likeQuery
+{
     NSMutableArray *pendingData = [NSMutableArray new];
+    if (!likeQuery) {
+        likeQuery = @"%";
+    } else {
+        likeQuery = [NSString stringWithFormat:@"%%%@%%", likeQuery];
+    }
     [_dbQueue inDatabase:^(FMDatabase *database) {
-        NSString *query = [NSString stringWithFormat:@"SELECT * FROM `jobs` WHERE operationClass = '%@'", NSStringFromClass(operationClass)];
+        NSString *query = [NSString stringWithFormat:@"SELECT * FROM `jobs` WHERE operationClass = '%@' AND operationData LIKE '%@'", NSStringFromClass(operationClass), likeQuery];
+
         FMResultSet *result = [database executeQuery:query];
         while ([result next]) {
             NSData *operationData = [result dataForColumnIndex:2];
             NSError *error;
-            NSDictionary *operationDictionary = [NSJSONSerialization JSONObjectWithData:operationData options:0 error:&error];
+            NSMutableDictionary *operationDictionary = [[NSJSONSerialization JSONObjectWithData:operationData options:0 error:&error] mutableCopy];
+            [operationDictionary setObject:[result objectForColumnIndex:0] forKey:BOPersistentOperationIdentifier];
             [pendingData addObject:operationDictionary];
         }
     }];
