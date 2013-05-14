@@ -151,6 +151,13 @@ NSString * const BOPersistentOperationIdentifier = @"BOPersistentOperationIdenti
     return pendingData;
 }
 
+- (void)removeAllPendingOperations
+{
+    [_dbQueue inDatabase:^(FMDatabase *db) {
+        [db executeUpdate:@"TRUNCATE `jobs`"];
+    }];
+}
+
 #pragma mark - KVO
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
@@ -206,6 +213,12 @@ NSString * const BOPersistentOperationIdentifier = @"BOPersistentOperationIdenti
         [self setupOperationPersistence:op];
     }];
     [super addOperations:ops waitUntilFinished:wait];
+}
+
+- (void)cancelAllOperations
+{
+    [self removeAllPendingOperations];
+    [super cancelAllOperations];
 }
 
 - (void)dealloc
