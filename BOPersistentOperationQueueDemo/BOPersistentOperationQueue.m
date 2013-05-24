@@ -14,6 +14,7 @@
 
 static NSString * const defaultQueueDomainName = @"com.buenaonda.BOPersistentOperationQueue";
 NSString * const BOPersistentOperationIdentifier = @"BOPersistentOperationIdentifier";
+NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
 
 @interface BOPersistentOperationQueue () {
     BOOL _started;
@@ -136,15 +137,19 @@ NSString * const BOPersistentOperationIdentifier = @"BOPersistentOperationIdenti
     } else {
         likeQuery = [NSString stringWithFormat:@"%%%@%%", likeQuery];
     }
+    NSString *classString = operationClass ? NSStringFromClass(operationClass) : @"%";
     [_dbQueue inDatabase:^(FMDatabase *database) {
-        NSString *query = [NSString stringWithFormat:@"SELECT * FROM `jobs` WHERE operationClass = '%@' AND operationData LIKE '%@'", NSStringFromClass(operationClass), likeQuery];
+        NSString *query = [NSString stringWithFormat:@"SELECT * FROM `jobs` WHERE operationClass LIKE '%@' AND operationData LIKE '%@'", classString, likeQuery];
 
         FMResultSet *result = [database executeQuery:query];
         while ([result next]) {
             NSData *operationData = [result dataForColumnIndex:2];
             NSError *error;
             NSMutableDictionary *operationDictionary = [[NSJSONSerialization JSONObjectWithData:operationData options:0 error:&error] mutableCopy];
-            [operationDictionary setObject:[result objectForColumnIndex:0] forKey:BOPersistentOperationIdentifier];
+            [operationDictionary setObject:[result objectForColumnIndex:0]
+                                    forKey:BOPersistentOperationIdentifier];
+            [operationDictionary setObject:[result objectForColumnIndex:1]
+                                    forKey:BOPersistentOperationClass];
             [pendingData addObject:operationDictionary];
         }
     }];
@@ -153,6 +158,23 @@ NSString * const BOPersistentOperationIdentifier = @"BOPersistentOperationIdenti
 
 - (void)removeAllPendingOperations
 {
+    [self.operations enumerateObjectsWithOptions:NSEnumerationConcurrent usingBlock:^(NSOperation <BOOperationPersistance> * obj, NSUInteger idx, BOOL *stop) {
+        if ([obj respondsToSelector:@selector(remove)]) {
+            [obj remove];
+        }
+        [_dbQueue inDatabase:^(FMDatabase *db) {
+            NSString *sql = [NSString stringWithFormat:@"DELETE FROM `jobs` WHERE id = '%@'", obj.identifier];
+            [db executeUpdate:sql];
+        }];
+    }];
+    
+    NSArray *pendingOpsData = [self pendingDataOfOperationsWithClass:Nil];
+    [pendingOpsData enumerateObjectsWithOptions:NSEnumerationConcurrent usingBlock:^(NSDictionary *obj, NSUInteger idx, BOOL *stop) {
+        Class <BOOperationPersistance> operationClass = NSClassFromString([obj objectForKey:BOPersistentOperationClass]);
+        if ([(id)operationClass respondsToSelector:@selector(willRemoveOperationWithDictionary:)]) {
+            [operationClass willRemoveOperationWithDictionary:obj];
+        }
+    }];
     [_dbQueue inDatabase:^(FMDatabase *db) {
         [db executeUpdate:@"TRUNCATE `jobs`"];
     }];
@@ -217,8 +239,11 @@ NSString * const BOPersistentOperationIdentifier = @"BOPersistentOperationIdenti
 
 - (void)cancelAllOperations
 {
+    BOOL wasSuspended = [self isSuspended];
+    [self setSuspended:YES];
     [self removeAllPendingOperations];
     [super cancelAllOperations];
+    [self setSuspended:wasSuspended];
 }
 
 - (void)dealloc

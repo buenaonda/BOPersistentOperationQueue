@@ -18,5 +18,7 @@
 /** @discussion default to YES if this is not implemented.
 */
 - (BOOL)shouldPersist;
++ (void)willRemoveOperationWithDictionary:(NSDictionary *)operationData;
+- (void)remove;
 
 @end
