@@ -156,16 +156,21 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
     return pendingData;
 }
 
+- (void)removeOperation:(NSOperation<BOOperationPersistance> *)op
+{
+    if ([op respondsToSelector:@selector(remove)]) {
+        [op remove];
+    }
+    [_dbQueue inDatabase:^(FMDatabase *db) {
+        NSString *sql = [NSString stringWithFormat:@"DELETE FROM `jobs` WHERE id = '%@'", op.identifier];
+        [db executeUpdate:sql];
+    }];
+}
+
 - (void)removeAllPendingOperations
 {
     [self.operations enumerateObjectsWithOptions:NSEnumerationConcurrent usingBlock:^(NSOperation <BOOperationPersistance> * obj, NSUInteger idx, BOOL *stop) {
-        if ([obj respondsToSelector:@selector(remove)]) {
-            [obj remove];
-        }
-        [_dbQueue inDatabase:^(FMDatabase *db) {
-            NSString *sql = [NSString stringWithFormat:@"DELETE FROM `jobs` WHERE id = '%@'", obj.identifier];
-            [db executeUpdate:sql];
-        }];
+        [self removeOperation:obj];
     }];
     
     NSArray *pendingOpsData = [self pendingDataOfOperationsWithClass:Nil];

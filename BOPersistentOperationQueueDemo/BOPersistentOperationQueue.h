@@ -13,6 +13,8 @@ extern NSString * const BOPersistentOperationIdentifier;
 
 @interface BOPersistentOperationQueue : NSOperationQueue
 
+- (void)removeOperation:(NSOperation <BOOperationPersistance> *)op;
+
 /** 
  WARNING: POTENTIALLY EXPENSIVE OPERATION.
           USE CAREFULLY.
