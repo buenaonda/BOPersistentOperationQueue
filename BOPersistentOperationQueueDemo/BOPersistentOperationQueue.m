@@ -108,7 +108,7 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
             [_dbQueue inDatabase:^(FMDatabase *database) {
                 //Get task created before this runtime.
-                NSString *query = [NSString stringWithFormat:@"SELECT * FROM `jobs` WHERE id > '%d' AND id < '%d' LIMIT 0,10", _lastRetrievedId, _smallestIdCreatedOnRuntime];
+                NSString *query = [NSString stringWithFormat:@"SELECT * FROM `jobs` WHERE id > '%ld' AND id < '%ld' LIMIT 0,10", (long int)_lastRetrievedId, (long int)_smallestIdCreatedOnRuntime];
                 FMResultSet *result = [database executeQuery:query];
                 while ([result next]) {
                     Class<BOOperationPersistance> operationClass = NSClassFromString([result stringForColumnIndex:1]);
@@ -156,15 +156,30 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
     return pendingData;
 }
 
+- (void)removeFromDatabaseJobWithIdentifier:(NSNumber *)identifier
+{
+    [_dbQueue inDatabase:^(FMDatabase *db) {
+        NSString *sql = [NSString stringWithFormat:@"DELETE FROM `jobs` WHERE id = '%@'", identifier];
+        [db executeUpdate:sql];
+    }];
+}
+
 - (void)removeOperation:(NSOperation<BOOperationPersistance> *)op
 {
     if ([op respondsToSelector:@selector(remove)]) {
         [op remove];
     }
-    [_dbQueue inDatabase:^(FMDatabase *db) {
-        NSString *sql = [NSString stringWithFormat:@"DELETE FROM `jobs` WHERE id = '%@'", op.identifier];
-        [db executeUpdate:sql];
-    }];
+    [self removeFromDatabaseJobWithIdentifier:op.identifier];
+}
+
+- (void)removeOperationWithIdentifier:(NSNumber *)identifier
+{
+    NSPredicate *predicate = [NSPredicate predicateWithFormat:@"identifier = %@", identifier];
+    NSOperation <BOOperationPersistance> *op = [[self.operations filteredArrayUsingPredicate:predicate] lastObject];
+    if (op) {
+        return [self removeOperation:op];
+    }
+    [self removeFromDatabaseJobWithIdentifier:identifier];
 }
 
 - (void)removeAllPendingOperations
@@ -192,10 +207,7 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
     if ([object isKindOfClass:[NSOperation class]]) {
         NSOperation<BOOperationPersistance> *operation = object;
         if ([operation finishedSuccessfully]) {
-            [_dbQueue inDatabase:^(FMDatabase *db) {
-                NSString *sql = [NSString stringWithFormat:@"DELETE FROM `jobs` WHERE id = '%@'", operation.identifier];
-                [db executeUpdate:sql];
-            }];
+            [self removeFromDatabaseJobWithIdentifier:operation.identifier];
         } else {
             [self addOperationWithClass:[operation class] dictionary:[object operationData] identifier:operation.identifier];
         }

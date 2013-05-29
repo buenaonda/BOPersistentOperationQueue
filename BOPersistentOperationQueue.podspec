@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
     s.name = "BOPersistentOperationQueue"
-    s.version = "0.1"
+    s.version = "0.3"
     s.summary = "A NSOperationQueue that will persist tasks beyond one runtime. A Resque for Cocoa."
     s.license = "Evil Private License"
     s.authors  = { 'Diego Torres' => 'contact@dtorres.me'}
