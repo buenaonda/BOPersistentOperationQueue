@@ -7,7 +7,7 @@
 //
 
 #import "BOPersistentOperationQueue.h"
-#import "NSOperation+PersistanceID.h"
+#import "NSOperation+Persistance.h"
 #import <FMDB/FMDatabase.h>
 #import <FMDB/FMDatabaseQueue.h>
 #import <FMDB/FMDatabaseAdditions.h>
@@ -52,6 +52,9 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
 
     if([op conformsToProtocol:@protocol(BOOperationPersistance)] && shouldPersist) {
         [op addObserver:self forKeyPath:@"isFinished" options:0 context:NULL];
+        if (op.pendingRetryAttempts == nil) {
+            op.pendingRetryAttempts = @(-1);
+        }
         if (op.identifier) {
             //Already in DB, bye!
             return;
@@ -59,7 +62,10 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
         //Register in DB
         NSDictionary *operationDictionary = [op operationData];
         NSError *error;
-        NSData *operationData = [NSJSONSerialization dataWithJSONObject:operationDictionary options:0 error:&error];
+        NSData *operationData = nil;
+        if (operationDictionary) {
+            operationData = [NSJSONSerialization dataWithJSONObject:operationDictionary options:0 error:&error];
+        }
         NSString *operationString = [[NSString alloc] initWithData:operationData encoding:NSUTF8StringEncoding];
         [_dbQueue inDatabase:^(FMDatabase *db) {
             [db executeUpdate:@"INSERT INTO `jobs` (`operationClass`, `operationData`) VALUES (?, ?)", NSStringFromClass([op class]), operationString];
@@ -77,17 +83,6 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
 #endif
 }
 
-- (void)addOperationWithClass:(Class<BOOperationPersistance>)class dictionary:(NSDictionary *)dictionary identifier:(NSNumber *)identifier
-{
-    NSOperation *operation = [class operationWithDictionary:dictionary];
-    if (operation) {
-        operation.identifier = identifier;
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
-            [self addOperation:operation];
-        });
-    }
-}
-
 - (void)retrievePendingQueue
 {
     if (!_dbQueue && self.name != nil) {
@@ -98,6 +93,7 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
         _dbQueue = [FMDatabaseQueue databaseQueueWithPath:dbPath];
         [_dbQueue inDatabase:^(FMDatabase *database) {
             [database executeUpdate:@"CREATE TABLE IF NOT EXISTS `jobs` (id INTEGER PRIMARY KEY NOT NULL UNIQUE, operationClass VARCHAR(100) NOT NULL, operationData VARCHAR(500) NULL)"];
+            [database executeUpdate:@"ALTER TABLE `jobs` ADD `operationRetry` INT  NULL  DEFAULT NULL AFTER `operationData`"];
             NSUInteger numberOfPendingOps = [database intForQuery:@"SELECT count(id) FROM jobs"];
             if (numberOfPendingOps == 0) {
                 _lastRetrievedId = NSIntegerMax;
@@ -114,10 +110,19 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
                     Class<BOOperationPersistance> operationClass = NSClassFromString([result stringForColumnIndex:1]);
                     NSData *operationData = [result dataForColumnIndex:2];
                     NSError *error;
-                    NSDictionary *operationDictionary = [NSJSONSerialization JSONObjectWithData:operationData options:0 error:&error];
+                    NSDictionary *operationDictionary = operationData != nil ? [NSJSONSerialization JSONObjectWithData:operationData options:0 error:&error] : nil;
                     NSUInteger identifier = [result intForColumnIndex:0];
+                    NSInteger retry = [result intForColumnIndex:3];
                     _lastRetrievedId = identifier;
-                    [self addOperationWithClass:operationClass dictionary:operationDictionary identifier:[NSNumber numberWithUnsignedInteger:identifier]];
+                    
+                    NSOperation <BOOperationPersistance> *op = [operationClass operationWithDictionary:operationDictionary];
+                    if (op) {
+                        op.identifier = [NSNumber numberWithUnsignedInteger:identifier];
+                        op.pendingRetryAttempts = @(retry);
+                        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
+                            [self addOperation:op];
+                        });
+                    }
                 }
             }];
         });
@@ -200,16 +205,43 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
     }];
 }
 
+- (void)decreaseRetry:(NSOperation <BOOperationPersistance> *)op
+{
+    if (op.pendingRetryAttempts != nil && op.pendingRetryAttempts.intValue > 0) {
+        op.pendingRetryAttempts = @(op.pendingRetryAttempts.intValue - 1);
+    }
+    [self.dbQueue inDatabase:^(FMDatabase *db) {
+        NSString *query = [NSString stringWithFormat:@"UPDATE `jobs` SET operationRetry = %@ WHERE id = '%@'", op.pendingRetryAttempts, op.identifier];
+        [db executeUpdate:query];
+    }];
+}
+
 #pragma mark - KVO
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
 {
     if ([object isKindOfClass:[NSOperation class]]) {
         NSOperation<BOOperationPersistance> *operation = object;
-        if ([operation finishedSuccessfully]) {
-            [self removeFromDatabaseJobWithIdentifier:operation.identifier];
-        } else {
-            [self addOperationWithClass:[operation class] dictionary:[object operationData] identifier:operation.identifier];
+        if ([keyPath isEqualToString:@"isFinished"]) {
+            NSLog(@"(%@) Finished, Retry = %@", operation.identifier, operation.pendingRetryAttempts);
+            BOOL success = [operation finishedSuccessfully];
+            if (success || [operation.pendingRetryAttempts isEqualToNumber:@(0)]) {
+                if (!success) {
+                    [self removeOperation:operation];
+                } else {
+                    [self removeFromDatabaseJobWithIdentifier:operation.identifier];
+                }
+            } else {
+                [self decreaseRetry:operation];
+                NSOperation <BOOperationPersistance> *op = [[operation class] operationWithDictionary:[operation operationData]];
+                if (op) {
+                    op.identifier = operation.identifier;
+                    op.pendingRetryAttempts = operation.pendingRetryAttempts;
+                    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
+                        [self addOperation:op];
+                    });
+                }
+            }
         }
     } else if (object == self) {
         if (!_retrievingJobs && (self.operations.count == 0)) {

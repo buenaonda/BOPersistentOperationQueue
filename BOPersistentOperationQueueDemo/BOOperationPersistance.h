@@ -15,7 +15,8 @@
 - (BOOL)finishedSuccessfully;
 
 @optional
-/** @discussion default to YES if this is not implemented.
+/** 
+ shouldPersist defaults to YES if this is not implemented.
 */
 - (BOOL)shouldPersist;
 + (void)willRemoveOperationWithDictionary:(NSDictionary *)operationData;

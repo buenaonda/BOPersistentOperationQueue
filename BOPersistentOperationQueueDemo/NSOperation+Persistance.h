@@ -1,5 +1,5 @@
 //
-//  NSOperation+PersistanceID.h
+//  NSOperation+Persistance.h
 //  BOPersistentOperationQueueDemo
 //
 //  Created by Diego Torres on 4/12/13.
@@ -8,8 +8,9 @@
 
 #import <Foundation/Foundation.h>
 
-@interface NSOperation (PersistanceID)
+@interface NSOperation (Persistance)
 
 @property (nonatomic, assign) NSNumber *identifier;
+@property (nonatomic, assign) NSNumber *pendingRetryAttempts;
 
 @end
