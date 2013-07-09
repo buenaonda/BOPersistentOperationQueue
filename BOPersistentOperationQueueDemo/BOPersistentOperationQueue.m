@@ -295,6 +295,19 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
     [self setSuspended:wasSuspended];
 }
 
+- (NSUInteger)operationCount
+{
+    NSUInteger operationCount = [super operationCount];
+    __block NSUInteger countInDB = 0;
+    [_dbQueue inDatabase:^(FMDatabase *db) {
+        FMResultSet *result = [db executeQuery:@"SELECT count(*) FROM `jobs`"];
+        while ([result next]) {
+            countInDB = [result intForColumnIndex:0];
+        }
+    }];
+    return MAX(operationCount, countInDB);
+}
+
 - (void)dealloc
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
