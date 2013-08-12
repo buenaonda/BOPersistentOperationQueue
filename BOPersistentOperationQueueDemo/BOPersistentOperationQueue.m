@@ -201,7 +201,7 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
         }
     }];
     [_dbQueue inDatabase:^(FMDatabase *db) {
-        [db executeUpdate:@"TRUNCATE `jobs`"];
+        [db executeUpdate:@"DELETE FROM jobs"];
     }];
 }
 
@@ -223,7 +223,6 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
     if ([object isKindOfClass:[NSOperation class]]) {
         NSOperation<BOOperationPersistance> *operation = object;
         if ([keyPath isEqualToString:@"isFinished"]) {
-            NSLog(@"(%@) Finished, Retry = %@", operation.identifier, operation.pendingRetryAttempts);
             BOOL success = [operation finishedSuccessfully];
             if (success || [operation.pendingRetryAttempts isEqualToNumber:@(0)]) {
                 if (!success) {
@@ -237,9 +236,7 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
                 if (op) {
                     op.identifier = operation.identifier;
                     op.pendingRetryAttempts = operation.pendingRetryAttempts;
-                    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
-                        [self addOperation:op];
-                    });
+                    [self addOperation:op];
                 }
             }
         }
