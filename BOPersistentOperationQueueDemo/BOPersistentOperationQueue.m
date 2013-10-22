@@ -164,10 +164,13 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
 
 - (void)removeFromDatabaseJobWithIdentifier:(NSNumber *)identifier
 {
+    NSString *key = NSStringFromSelector(@selector(operationCount));
+    [self willChangeValueForKey:key];
     [_dbQueue inDatabase:^(FMDatabase *db) {
         NSString *sql = [NSString stringWithFormat:@"DELETE FROM `jobs` WHERE id = '%@'", identifier];
         [db executeUpdate:sql];
     }];
+    [self didChangeValueForKey:key];
 }
 
 - (void)removeOperation:(NSOperation<BOOperationPersistance> *)op
@@ -201,9 +204,12 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
             [operationClass willRemoveOperationWithDictionary:obj];
         }
     }];
+    NSString *key = NSStringFromSelector(@selector(operationCount));
+    [self willChangeValueForKey:key];
     [_dbQueue inDatabase:^(FMDatabase *db) {
         [db executeUpdate:@"DELETE FROM jobs"];
     }];
+    [self didChangeValueForKey:key];
 }
 
 - (void)decreaseRetry:(NSOperation <BOOperationPersistance> *)op
