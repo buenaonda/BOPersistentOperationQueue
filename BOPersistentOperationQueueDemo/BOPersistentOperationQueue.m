@@ -51,7 +51,8 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
     BOOL shouldPersist = [op respondsToSelector:@selector(shouldPersist)] ? [op shouldPersist] : YES;
 
     if([op conformsToProtocol:@protocol(BOOperationPersistance)] && shouldPersist) {
-        [op addObserver:self forKeyPath:@"isFinished" options:0 context:NULL];
+        [op addObserver:self forKeyPath:NSStringFromSelector(@selector(isFinished)) options:0 context:NULL];
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(operationChangedData:) name:BOOperationDidInvalidateOperationData object:op];
         if (op.pendingRetryAttempts == nil) {
             op.pendingRetryAttempts = @(-1);
         }
@@ -69,7 +70,7 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
         NSString *operationString = [[NSString alloc] initWithData:operationData encoding:NSUTF8StringEncoding];
         [_dbQueue inDatabase:^(FMDatabase *db) {
             [db executeUpdate:@"INSERT INTO `jobs` (`operationClass`, `operationData`) VALUES (?, ?)", NSStringFromClass([op class]), operationString];
-            NSUInteger lastId = [db lastInsertRowId];
+            NSUInteger lastId = (NSUInteger)[db lastInsertRowId];
             op.identifier = [NSNumber numberWithInteger:lastId];
             if (_smallestIdCreatedOnRuntime == NSIntegerMax) {
                 _smallestIdCreatedOnRuntime = lastId;
@@ -87,7 +88,7 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
 {
     if (!_dbQueue && self.name != nil) {
         NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask,YES);
-        NSString *documentsDirectory = [paths objectAtIndex:0];
+        NSString *documentsDirectory = [paths firstObject];
         NSString *fileName = [self.name stringByAppendingPathExtension:@"db"];
         NSString *dbPath = [documentsDirectory stringByAppendingPathComponent:fileName];
         _dbQueue = [FMDatabaseQueue databaseQueueWithPath:dbPath];
@@ -248,6 +249,28 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
                 _retrievingJobs = NO;
             });
         }
+    }
+}
+
+- (void)operationChangedData:(NSNotification *)notification
+{
+    NSOperation <BOOperationPersistance> *op = [notification object];
+    NSUInteger operationIdentifier = op.identifier ? [op.identifier unsignedIntegerValue] : 0;
+    if (operationIdentifier <= 0) {
+        return;
+    }
+    NSDictionary *operationDictionary = [op operationData];
+    NSError *error;
+    NSData *operationData = nil;
+    if (operationDictionary) {
+        operationData = [NSJSONSerialization dataWithJSONObject:operationDictionary options:0 error:&error];
+    }
+    NSString *operationString = [[NSString alloc] initWithData:operationData encoding:NSUTF8StringEncoding];
+    if (operationString) {
+        [_dbQueue inDatabase:^(FMDatabase *db) {
+            NSString *query = [NSString stringWithFormat:@"UPDATE `jobs` SET operationData = %@ WHERE id = '%@'", operationString, @(operationIdentifier)];
+            [db executeUpdate:query];
+        }];
     }
 }
 

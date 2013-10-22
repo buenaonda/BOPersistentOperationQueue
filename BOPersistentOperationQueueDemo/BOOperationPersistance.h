@@ -8,6 +8,8 @@
 
 #import <Foundation/Foundation.h>
 
+static NSString *BOOperationDidInvalidateOperationData = @"BOOperationDidInvalidateOperationData";
+
 @protocol BOOperationPersistance <NSObject>
 
 + (instancetype)operationWithDictionary:(NSDictionary *)operationData;

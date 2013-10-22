@@ -17,7 +17,7 @@ extern NSString * const BOPersistentOperationIdentifier;
 - (void)removeOperationWithIdentifier:(NSNumber *)identifier;
 
 /** 
- WARNING: POTENTIALLY EXPENSIVE OPERATION.
+ @warning POTENTIALLY EXPENSIVE OPERATION.
           USE CAREFULLY.
 */
 - (NSArray *)pendingDataOfOperationsWithClass:(Class <BOOperationPersistance>)operationClass;
