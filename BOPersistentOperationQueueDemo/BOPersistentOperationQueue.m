@@ -69,7 +69,7 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
         }
         NSString *operationString = [[NSString alloc] initWithData:operationData encoding:NSUTF8StringEncoding];
         [_dbQueue inDatabase:^(FMDatabase *db) {
-            [db executeUpdate:@"INSERT INTO `jobs` (`operationClass`, `operationData`) VALUES (?, ?)", NSStringFromClass([op class]), operationString];
+            [db executeUpdate:@"INSERT INTO `jobs` (`operationClass`, `operationData`, `operationRetry`) VALUES (?, ?, ?)", NSStringFromClass([op class]), operationString, op.pendingRetryAttempts];
             NSUInteger lastId = (NSUInteger)[db lastInsertRowId];
             op.identifier = [NSNumber numberWithInteger:lastId];
             if (_smallestIdCreatedOnRuntime == NSIntegerMax) {
@@ -113,7 +113,7 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
                     NSError *error;
                     NSDictionary *operationDictionary = operationData != nil ? [NSJSONSerialization JSONObjectWithData:operationData options:0 error:&error] : nil;
                     NSUInteger identifier = [result intForColumnIndex:0];
-                    NSInteger retry = [result intForColumnIndex:3];
+                    NSInteger retry = [result columnIndexIsNull:3] ? -1 : [result intForColumnIndex:3];
                     _lastRetrievedId = identifier;
                     
                     NSOperation <BOOperationPersistance> *op = [operationClass operationWithDictionary:operationDictionary];
