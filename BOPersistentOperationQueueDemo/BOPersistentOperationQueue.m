@@ -94,7 +94,7 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
         _dbQueue = [FMDatabaseQueue databaseQueueWithPath:dbPath];
         [_dbQueue inDatabase:^(FMDatabase *database) {
             [database executeUpdate:@"CREATE TABLE IF NOT EXISTS `jobs` (id INTEGER PRIMARY KEY NOT NULL UNIQUE, operationClass VARCHAR(100) NOT NULL, operationData VARCHAR(500) NULL)"];
-            [database executeUpdate:@"ALTER TABLE `jobs` ADD `operationRetry` INT  NULL  DEFAULT NULL AFTER `operationData`"];
+            [database executeUpdate:@"ALTER TABLE `jobs` ADD `operationRetry` INT NULL DEFAULT NULL"];
             NSUInteger numberOfPendingOps = [database intForQuery:@"SELECT count(id) FROM jobs"];
             if (numberOfPendingOps == 0) {
                 _lastRetrievedId = NSIntegerMax;
