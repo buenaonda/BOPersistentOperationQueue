@@ -162,12 +162,13 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
     return pendingData;
 }
 
-- (void)removeFromDatabaseJobWithIdentifier:(NSNumber *)identifier
+- (void)removeFromDatabaseJobsWithIdentifiers:(NSArray *)identifiers
 {
     NSString *key = NSStringFromSelector(@selector(operationCount));
     [self willChangeValueForKey:key];
     [_dbQueue inDatabase:^(FMDatabase *db) {
-        NSString *sql = [NSString stringWithFormat:@"DELETE FROM `jobs` WHERE id = '%@'", identifier];
+        NSString *identifiersString = [identifiers componentsJoinedByString:@","];
+        NSString *sql = [NSString stringWithFormat:@"DELETE FROM `jobs` WHERE id IN (%@)", identifiersString];
         [db executeUpdate:sql];
     }];
     [self didChangeValueForKey:key];
@@ -175,10 +176,16 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
 
 - (void)removeOperation:(NSOperation<BOOperationPersistance> *)op
 {
-    if ([op respondsToSelector:@selector(remove)]) {
-        [op remove];
-    }
-    [self removeFromDatabaseJobWithIdentifier:op.identifier];
+    [self removeOperations:@[op]];
+}
+
+- (void)removeOperations:(NSArray *)ops
+{
+    [ops enumerateObjectsWithOptions:NSEnumerationConcurrent usingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
+        [(NSOperation<BOOperationPersistance> *)obj remove];
+    }];
+    NSArray *identifiers = [ops valueForKey:NSStringFromSelector(@selector(identifier))];
+    [self removeFromDatabaseJobsWithIdentifiers:identifiers];
 }
 
 - (void)removeOperationWithIdentifier:(NSNumber *)identifier
@@ -188,14 +195,12 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
     if (op) {
         return [self removeOperation:op];
     }
-    [self removeFromDatabaseJobWithIdentifier:identifier];
+    [self removeFromDatabaseJobsWithIdentifiers:@[identifier]];
 }
 
 - (void)removeAllPendingOperations
 {
-    [self.operations enumerateObjectsWithOptions:NSEnumerationConcurrent usingBlock:^(NSOperation <BOOperationPersistance> * obj, NSUInteger idx, BOOL *stop) {
-        [self removeOperation:obj];
-    }];
+    [self removeOperations:self.operations];
     
     NSArray *pendingOpsData = [self pendingDataOfOperationsWithClass:Nil];
     [pendingOpsData enumerateObjectsWithOptions:NSEnumerationConcurrent usingBlock:^(NSDictionary *obj, NSUInteger idx, BOOL *stop) {
@@ -235,7 +240,7 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
                 if (!success) {
                     [self removeOperation:operation];
                 } else {
-                    [self removeFromDatabaseJobWithIdentifier:operation.identifier];
+                    [self removeFromDatabaseJobsWithIdentifiers:@[operation.identifier]];
                 }
             } else {
                 [self decreaseRetry:operation];

@@ -14,12 +14,12 @@ extern NSString * const BOPersistentOperationIdentifier;
 @interface BOPersistentOperationQueue : NSOperationQueue
 
 - (void)removeOperation:(NSOperation <BOOperationPersistance> *)op;
+- (void)removeOperations:(NSArray *)ops;
 - (void)removeOperationWithIdentifier:(NSNumber *)identifier;
 
-/** 
- @warning POTENTIALLY EXPENSIVE OPERATION.
-          USE CAREFULLY.
-*/
+/**
+ @warning POTENTIALLY EXPENSIVE OPERATION. USE CAREFULLY.
+ */
 - (NSArray *)pendingDataOfOperationsWithClass:(Class <BOOperationPersistance>)operationClass;
 - (NSArray *)pendingDataOfOperationsWithClass:(Class <BOOperationPersistance>)operationClass like:(NSString *)query;
 
