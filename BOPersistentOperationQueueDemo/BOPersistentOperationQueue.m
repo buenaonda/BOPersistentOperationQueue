@@ -114,8 +114,8 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
             [_dbQueue inDatabase:^(FMDatabase *database) {
                 //Get task created before this runtime.
-                NSString *query = [NSString stringWithFormat:@"SELECT * FROM `jobs` WHERE id > '%ld' AND id < '%ld' LIMIT 0,10", (long int)_lastRetrievedId, (long int)_smallestIdCreatedOnRuntime];
-                FMResultSet *result = [database executeQuery:query];
+                NSString *query = @"SELECT * FROM `jobs` WHERE id > ? AND id < ? LIMIT 0,10";
+                FMResultSet *result = [database executeQuery:query, @(_lastRetrievedId), @(_smallestIdCreatedOnRuntime)];
                 while ([result next]) {
                     Class<BOOperationPersistance> operationClass = NSClassFromString([result stringForColumnIndex:1]);
                     NSData *operationData = [result dataForColumnIndex:2];
@@ -288,8 +288,7 @@ NSString * const BOPersistentOperationClass = @"BOPersistentOperationClass";
     NSString *operationString = [[NSString alloc] initWithData:operationData encoding:NSUTF8StringEncoding];
     if (operationString) {
         [_dbQueue inDatabase:^(FMDatabase *db) {
-            NSString *query = [NSString stringWithFormat:@"UPDATE `jobs` SET operationData = %@ WHERE id = '%@'", operationString, @(operationIdentifier)];
-            [db executeUpdate:query];
+            [db executeUpdate:@"UPDATE `jobs` SET operationData = ? WHERE id = ?", operationString, @(operationIdentifier)];
         }];
     }
 }
